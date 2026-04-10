@@ -106,7 +106,18 @@ function consumeRateLimit(req: NextRequest, intent: ClaimIntent | "check", walle
 }
 
 function getClaimAuthSecret(): string | null {
-  return process.env.CLAIM_AUTH_SECRET || process.env.SUPABASE_SERVICE_KEY || null;
+  if (process.env.CLAIM_AUTH_SECRET) {
+    return process.env.CLAIM_AUTH_SECRET;
+  }
+
+  const isProduction =
+    process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production";
+
+  if (isProduction) {
+    return null;
+  }
+
+  return process.env.SUPABASE_SERVICE_KEY || null;
 }
 
 function encodeChallenge(challenge: ClaimChallenge): string {
