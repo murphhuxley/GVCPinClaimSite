@@ -28,6 +28,11 @@ type DelegateProofPayload = ClaimProofPayload & {
   address: string;
 };
 type RateLimitBucket = { count: number; resetAt: number };
+type RateLimitRpcRow = {
+  allowed: boolean;
+  current_count: number;
+  reset_at: string;
+};
 
 declare global {
   var __gvcClaimRateLimits: Map<string, RateLimitBucket> | undefined;
@@ -95,7 +100,7 @@ function checkRateLimit(key: string, limit: number): boolean {
   return true;
 }
 
-function consumeRateLimit(req: NextRequest, intent: ClaimIntent | "check", wallet: string): boolean {
+function consumeInMemoryRateLimit(req: NextRequest, intent: ClaimIntent | "check", wallet: string): boolean {
   const clientIp = getClientIp(req);
   const limits = RATE_LIMITS[intent];
 
@@ -103,6 +108,87 @@ function consumeRateLimit(req: NextRequest, intent: ClaimIntent | "check", walle
     checkRateLimit(`ip:${intent}:${clientIp}`, limits.perIp) &&
     checkRateLimit(`wallet:${intent}:${wallet}`, limits.perWallet)
   );
+}
+
+function isMissingFunctionError(error: unknown, functionName: string): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code = "code" in error && typeof error.code === "string" ? error.code : "";
+  const message = "message" in error && typeof error.message === "string" ? error.message : "";
+  const lowerMessage = message.toLowerCase();
+
+  return (
+    code === "PGRST202" ||
+    (message.includes(functionName) &&
+      (lowerMessage.includes("could not find the function") ||
+        lowerMessage.includes("does not exist")))
+  );
+}
+
+async function consumeDatabaseRateLimit(
+  supabase: SupabaseAdminClient,
+  key: string,
+  limit: number
+): Promise<boolean | null> {
+  const { data, error } = await supabase.rpc("consume_claim_rate_limit", {
+    bucket_key: key,
+    max_count: limit,
+    window_seconds: Math.floor(RATE_LIMIT_WINDOW_MS / 1000),
+  });
+
+  if (error) {
+    if (
+      isMissingFunctionError(error, "consume_claim_rate_limit") ||
+      isMissingRelationError(error, "claim_rate_limits")
+    ) {
+      return null;
+    }
+
+    throw error;
+  }
+
+  const row = Array.isArray(data) ? (data[0] as RateLimitRpcRow | undefined) : (data as RateLimitRpcRow | null);
+  return typeof row?.allowed === "boolean" ? row.allowed : null;
+}
+
+async function consumeRateLimit(
+  req: NextRequest,
+  intent: ClaimIntent | "check",
+  wallet: string,
+  supabase: SupabaseAdminClient | null
+): Promise<boolean> {
+  const clientIp = getClientIp(req);
+  const limits = RATE_LIMITS[intent];
+
+  if (supabase) {
+    const ipAllowed = await consumeDatabaseRateLimit(
+      supabase,
+      `ip:${intent}:${clientIp}`,
+      limits.perIp
+    );
+
+    if (ipAllowed === false) {
+      return false;
+    }
+
+    const walletAllowed = await consumeDatabaseRateLimit(
+      supabase,
+      `wallet:${intent}:${wallet}`,
+      limits.perWallet
+    );
+
+    if (walletAllowed === false) {
+      return false;
+    }
+
+    if (ipAllowed === true && walletAllowed === true) {
+      return true;
+    }
+  }
+
+  return consumeInMemoryRateLimit(req, intent, wallet);
 }
 
 function getClaimAuthSecret(): string | null {
@@ -613,17 +699,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid claim wallet address" }, { status: 400 });
     }
 
-    const normalizedAddress = getAddress(address);
-    const normalizedClaimantAddress = getAddress(claimantAddress);
-    const wallet = normalizedAddress.toLowerCase();
-    const claimantWallet = normalizedClaimantAddress.toLowerCase();
+	    const normalizedAddress = getAddress(address);
+	    const normalizedClaimantAddress = getAddress(claimantAddress);
+	    const wallet = normalizedAddress.toLowerCase();
+	    const claimantWallet = normalizedClaimantAddress.toLowerCase();
+	    const supabase = getSupabaseAdmin();
 
-    if (!consumeRateLimit(req, intent, wallet)) {
-      return NextResponse.json(
-        { error: "Too many requests. Please wait a minute and try again." },
-        { status: 429 }
-      );
-    }
+	    if (!(await consumeRateLimit(req, intent, wallet, supabase))) {
+	      return NextResponse.json(
+	        { error: "Too many requests. Please wait a minute and try again." },
+	        { status: 429 }
+	      );
+	    }
 
     if (intent === "challenge") {
       const challengePayload = createClaimChallenge(wallet, claimantWallet);
@@ -638,9 +725,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(challengePayload);
     }
 
-    const supabase = getSupabaseAdmin();
-
-    if (intent === "claim") {
+	    if (intent === "claim") {
       const signature = typeof body?.signature === "string" ? body.signature : "";
       const challenge = typeof body?.challenge === "string" ? body.challenge : "";
       const proof = typeof body?.proof === "string" ? body.proof : "";
