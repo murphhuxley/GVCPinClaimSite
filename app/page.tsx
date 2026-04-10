@@ -227,15 +227,23 @@ export default function Home() {
       return;
     }
 
-    if (linkedWalletCount >= MAX_LINKED_WALLETS) {
+    const normalizedAddress = address.toLowerCase();
+    const linkedWalletsForPrimary = Object.values(walletProofsRef.current).filter(
+      (walletProof) =>
+        isWalletProofActive(walletProof) &&
+        walletProof.claimantAddress === normalizedAddress &&
+        walletProof.address !== normalizedAddress
+    ).length;
+
+    if (linkedWalletsForPrimary >= MAX_LINKED_WALLETS) {
       toast.error("You can link up to 9 additional wallets per claim.");
       return;
     }
 
-    setPrimaryWallet(address.toLowerCase());
+    setPrimaryWallet(normalizedAddress);
     setAddingWallet(true);
     disconnect();
-  }, [address, disconnect, linkedWalletCount]);
+  }, [address, disconnect, isWalletProofActive]);
 
   const linkConnectedWallet = useCallback(async (walletAddress: string, claimantWallet: string) => {
     const { normalizedWallet, requestId } = beginRequest(walletAddress);
