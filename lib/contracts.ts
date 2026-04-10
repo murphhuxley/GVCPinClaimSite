@@ -12,6 +12,7 @@ export const DELEGATE_REGISTRY = "0x00000000000000447e69651d841bD8D104Bed493" as
 const DELEGATION_TYPE_ALL = 1;
 const DELEGATION_TYPE_CONTRACT = 2;
 const DELEGATION_TYPE_ERC1155 = 5;
+const FULL_RIGHTS = "0x0000000000000000000000000000000000000000000000000000000000000000";
 
 // Badge image from GVC badge system
 export const BADGE_IMAGE_URL =
@@ -103,6 +104,13 @@ export async function getDelegatedVaults(walletAddress: string): Promise<string[
     for (const d of delegations) {
       const type = Number(d.type_);
       const contractAddr = d.contract_.toLowerCase();
+      const rights = d.rights.toLowerCase();
+
+      // Only accept default "all rights" delegations. Non-zero rights can
+      // scope delegation to a different app/feature or encode expiry data.
+      if (rights !== FULL_RIGHTS) {
+        continue;
+      }
 
       // Accept: full delegation, HKM contract delegation, or HKM ERC-1155 delegation
       if (
