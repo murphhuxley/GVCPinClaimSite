@@ -700,6 +700,7 @@ export async function POST(req: NextRequest) {
 
     const delegateVaults = delegateResult.delegateVaults;
     const claimSourceWallets = eligible ? getClaimSourceWallets(wallet, perWallet) : [];
+    const requiresDelegatedSources = claimSourceWallets.some((sourceWallet) => sourceWallet !== wallet);
 
     if (!eligible) {
       return NextResponse.json({
@@ -781,6 +782,16 @@ export async function POST(req: NextRequest) {
     }
 
     if (sourceReservation.status === "unavailable") {
+      if (requiresDelegatedSources) {
+        return NextResponse.json(
+          {
+            error:
+              "Delegate claim protection is not available right now. Please contact support before retrying.",
+          },
+          { status: 503 }
+        );
+      }
+
       console.warn("claim_sources table is missing; delegated-wallet claim locks are disabled");
     }
 

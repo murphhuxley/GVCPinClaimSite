@@ -48,6 +48,7 @@ type WalletProof = {
 };
 
 const TOKEN_NAMES = ["HighKey Moments I", "HighKey Moments II", "HighKey Moments III"];
+const MAX_LINKED_WALLETS = 9;
 
 const SHOPIFY_URL = "https://shop.goodvibesclub.io/products/spring-vibes-pin-pack";
 
@@ -226,10 +227,15 @@ export default function Home() {
       return;
     }
 
+    if (linkedWalletCount >= MAX_LINKED_WALLETS) {
+      toast.error("You can link up to 9 additional wallets per claim.");
+      return;
+    }
+
     setPrimaryWallet(address.toLowerCase());
     setAddingWallet(true);
     disconnect();
-  }, [address, disconnect]);
+  }, [address, disconnect, linkedWalletCount]);
 
   const linkConnectedWallet = useCallback(async (walletAddress: string, claimantWallet: string) => {
     const { normalizedWallet, requestId } = beginRequest(walletAddress);
@@ -366,6 +372,7 @@ export default function Home() {
       ).length
     : 0;
   const checkedWalletCount = primaryWallet ? 1 + linkedWalletCount : 0;
+  const hasReachedWalletLinkCap = linkedWalletCount >= MAX_LINKED_WALLETS;
 
   const handleClaim = async () => {
     if (!address) return;
@@ -617,14 +624,20 @@ export default function Home() {
                 {/* Check another wallet */}
                 <button
                   onClick={handleAddWallet}
-                  disabled={linkingWallet}
+                  disabled={linkingWallet || hasReachedWalletLinkCap}
                   className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white/60 font-body text-sm hover:bg-white/10 hover:text-white/80 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  {linkingWallet ? "Linking this wallet..." : "Tokens in another wallet? Check it here"}
+                  {hasReachedWalletLinkCap
+                    ? "Wallet link limit reached"
+                    : linkingWallet
+                    ? "Linking this wallet..."
+                    : "Tokens in another wallet? Check it here"}
                 </button>
 
                 <p className="text-white/25 font-body text-xs">
-                  We&apos;ll ask you to sign each wallet once before it can count toward a multi-wallet claim.
+                  {hasReachedWalletLinkCap
+                    ? "You can link up to 9 additional wallets. Reconnect your main wallet to finish."
+                    : "We&apos;ll ask you to sign each wallet once before it can count toward a multi-wallet claim."}
                 </p>
 
                 <button
