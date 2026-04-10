@@ -1,5 +1,6 @@
-import { createPublicClient, http } from "viem";
+import { createPublicClient, fallback, http } from "viem";
 import { mainnet } from "viem/chains";
+import { parseRpcUrlList, resolveRpcUrls } from "@/lib/rpc";
 
 // HighKey Moments ERC-1155 on Manifold
 export const HKM_CONTRACT = "0x74fcb6eb2a2d02207b36e804d800687ce78d210c" as const;
@@ -57,9 +58,14 @@ export const DELEGATE_REGISTRY_ABI = [
   },
 ] as const;
 
+const serverRpcUrls = resolveRpcUrls([
+  ...parseRpcUrlList(process.env.ETHEREUM_RPC_URLS),
+  ...parseRpcUrlList(process.env.ETHEREUM_RPC_URL),
+]);
+
 export const publicClient = createPublicClient({
   chain: mainnet,
-  transport: http("https://ethereum-rpc.publicnode.com"),
+  transport: fallback(serverRpcUrls.map((url) => http(url)), { rank: false }),
 });
 
 /**
